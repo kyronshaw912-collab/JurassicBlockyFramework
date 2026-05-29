@@ -6,8 +6,8 @@
     UI rendered with the bundled JBUI library.
 
     Author : Framework Template
-    Version: v0.1.0
-    Build  : 20260529-jb-initial-port
+    Version: v0.1.1
+    Build  : 20260529-jb-placeid-guard
     Style  : Modular sections, Luau-native, single-file distributable.
 
     Ported from DinoFramework (Dinosaur Simulator) with:
@@ -18,7 +18,31 @@
         cached remote lookups, noclip part cache, randomized instance names)
 ==============================================================================
 --]]
-local JB_BUILD = "v0.1.0 NameHub (jurassic-blocky-initial-port)"
+local JB_BUILD = "v0.1.1 NameHub (jurassic-blocky-placeid-guard)"
+
+------------------------------------------------------------------------------
+-- 0a. PLACE-ID GUARD
+--    Refuses to run in any game other than Jurassic Blocky. Defense in depth
+--    in case someone gets the raw URL and pastes it in the wrong game --
+--    they'll see a clear error instead of a confusing deep failure.
+------------------------------------------------------------------------------
+do
+    local SUPPORTED_PLACES = { [11653088948] = true }   -- Jurassic Blocky
+    local pid = game.PlaceId
+    if not SUPPORTED_PLACES[pid] then
+        local msg = ("[NameHub Jurassic Blocky] Wrong game (PlaceId=%d). "
+                  .. "Use the NameHub Universal Loader from the Discord panel."):format(pid)
+        warn(msg)
+        if type(StarterGui) ~= "userdata" then
+            pcall(function()
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "NameHub", Text = "Wrong game for Jurassic Blocky script.", Duration = 8,
+                })
+            end)
+        end
+        error(msg, 0)
+    end
+end
 
 ------------------------------------------------------------------------------
 -- 0. EXECUTOR GLOBAL POLYFILLS
