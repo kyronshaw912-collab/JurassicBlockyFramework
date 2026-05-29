@@ -11,7 +11,7 @@
 
 
 
-local a = "v2.0.4 NameHub (jb-npc-target-20260529)"
+local a = "v2.0.5 NameHub (jb-diagnostics-20260529)"
 
 
 
@@ -162,6 +162,16 @@ local w = {
     
     
     SkipPlayers       = true,
+    
+    
+    
+    _FarmStatus       = "Idle",
+    _LastTarget       = "",
+    _LastDistance     = 0,
+    _LastFire         = "",
+    _AttackRemote     = "",
+    _TargetsFound     = 0,
+    _NamedFound       = 0,
 
     
     GoatESP           = false,
@@ -532,6 +542,36 @@ function I.allWithHumanoid()
     return J
 end
 
+
+
+
+
+
+function I.allByName(J)
+    if not J or J == "" then return {} end
+    local K = J:lower()
+    local L = {}
+    local M = G.get()
+    for N, O in ipairs(h:GetDescendants()) do
+        if O:IsA("Model") and O ~= M and O.Name:lower():find(K, 1, true) then
+            if not (w.SkipPlayers and d:GetPlayerFromCharacter(O) ~= nil) then
+                local P = O:FindFirstChild("HumanoidRootPart") or O.PrimaryPart
+                if not P then
+                    
+                    for Q, R in ipairs(O:GetChildren()) do
+                        if R:IsA("BasePart") then P = R; break end
+                    end
+                end
+                local Q = O:FindFirstChildOfClass("Humanoid")
+                if P then
+                    L[#L + 1] = { model = O, hum = Q, root = P }
+                end
+            end
+        end
+    end
+    return L
+end
+
 function I.matchesName(J, K)
     local L = d:GetPlayerFromCharacter(J) ~= nil
 
@@ -671,11 +711,33 @@ function M.start()
                 local R = (w.FarmPriority and #w.FarmPriority > 0) and w.FarmPriority or { w.FarmTarget }
                 local S = I.bestByPriority(R)
 
+                
+                
+                
+                
+                if not S then
+                    local T = math.huge
+                    for U, V in ipairs(R) do
+                        for W, X in ipairs(I.allByName(V)) do
+                            local Y = D.distance(Q, X.root)
+                            if Y < T then S = X; T = Y end
+                        end
+                        if S then break end
+                    end
+                end
+
                 local T = G.humanoid()
                 local U = (T and w.DisengageAt > 0 and T.Health < w.DisengageAt)
 
-                if not U and S and S.model.Parent then
+                if U then
+                    w._FarmStatus = ("Retreating (HP %d < %d)"):format(math.floor(T.Health), w.DisengageAt)
+                elseif S and S.model.Parent then
                     local V = D.distance(Q, S.root)
+                    w._FarmStatus    = ("Engaging %s @ %.0fm"):format(S.model.Name, V)
+                    w._LastTarget    = S.model.Name
+                    w._LastDistance  = V
+                    w._TargetsFound  = (w._TargetsFound or 0)
+
                     if V > w.Range then
                         local W = CFrame.new(S.root.Position) * CFrame.new(w.OffsetX, w.OffsetY, math.min(8, w.Range * 0.2))
                         W = CFrame.lookAt(W.Position, S.root.Position)
@@ -683,21 +745,40 @@ function M.start()
                     end
 
                     if tick() >= N then
-                        local W = J.fireAt(S)
-                        if W and w.StatsCounting then
+                        local W, X = J.findRemote()
+                        w._AttackRemote = X or "(none)"
+                        local Y = J.fireAt(S)
+                        w._LastFire = Y and "OK" or "FAIL"
+                        if Y and w.StatsCounting then
                             w.CoinsGained = w.CoinsGained + 1
                         end
                         N = tick() + 0.35
                     end
+                else
+                    w._FarmStatus = ("Searching for: %s"):format(table.concat(R, ", "))
+                end
+
+                
+                if P % 5 == 0 then
+                    local V = #I.allWithHumanoid()
+                    local W = 0
+                    for X, Y in ipairs(R) do
+                        W = W + #I.allByName(Y)
+                    end
+                    w._TargetsFound = V
+                    w._NamedFound   = W
                 end
 
                 if w.AutoLoot and tick() >= O then
                     J.collectNearby()
                     O = tick() + 3
                 end
+            else
+                w._FarmStatus = "No character"
             end
             task.wait(0.1)
         end
+        w._FarmStatus = "Idle"
     end, "AutoFarm.loop")
 end
 
@@ -2666,11 +2747,69 @@ do
     local aB = ah.label(ay, "Time Elapsed: N/A")
     al, an, am = az, aA, aB
 
+    
+    
+    
+    local aC  = ah.label(ay, "Status: Idle")
+    local aD   = ah.label(ay, "Targets: 0 humanoids / 0 by name")
+    local aE  = ah.label(ay, "Attack remote: (not discovered)")
+    local aF = ah.label(ay, "Last fire: -")
+    _G._JB_StatusLbl  = aC
+    _G._JB_FoundLbl   = aD
+    _G._JB_RemoteLbl  = aE
+    _G._JB_LastFireLbl = aF
+
     ah.button(ay, "Start Counting Stats", function()
         w.CoinsGained = 0
         w.StartTime = os.time()
         w.StatsCounting = true
         F.send("Stats counter started.")
+    end)
+
+    
+    
+    
+    
+    ah.button(ay, "Copy Diagnostics", function()
+        local aG = { "=== NameHub JB Diagnostics ===", "Build: " .. a }
+        aG[#aG + 1] = "FarmTarget: " .. tostring(w.FarmTarget)
+        aG[#aG + 1] = "FarmPriority: " .. table.concat(w.FarmPriority or {}, ", ")
+        aG[#aG + 1] = "SkipPlayers: " .. tostring(w.SkipPlayers)
+        aG[#aG + 1] = "Status: " .. tostring(w._FarmStatus)
+        aG[#aG + 1] = "LastTarget: " .. tostring(w._LastTarget) .. " @ " .. tostring(math.floor(w._LastDistance or 0)) .. "m"
+        aG[#aG + 1] = "AttackRemote: " .. tostring(w._AttackRemote)
+        aG[#aG + 1] = "LastFire: " .. tostring(w._LastFire)
+        aG[#aG + 1] = "TargetsFound (humanoid): " .. tostring(w._TargetsFound)
+        aG[#aG + 1] = "TargetsFound (name fallback): " .. tostring(w._NamedFound)
+        aG[#aG + 1] = ""
+        aG[#aG + 1] = "--- Nearby humanoid targets (top 20) ---"
+        for X, Y in ipairs(I.dump(20)) do
+            aG[#aG + 1] = Y
+        end
+        aG[#aG + 1] = ""
+        aG[#aG + 1] = "--- Name-fallback matches per priority ---"
+        local X = G.root()
+        for Y, Z in ipairs(w.FarmPriority or {}) do
+            aG[#aG + 1] = ("> %s:"):format(Z)
+            local _ = I.allByName(Z)
+            local aH = 0
+            for aI, aJ in ipairs(_) do
+                if aH >= 10 then break end
+                local aK = X and D.distance(X, aJ.root) or -1
+                aG[#aG + 1] = ("    %-30s dist=%-6.1f hum=%s"):format(
+                    aJ.model.Name:sub(1, 30), aK, aJ.hum and "yes" or "no")
+                aH = aH + 1
+            end
+            if #_ == 0 then aG[#aG + 1] = "    (none found)" end
+        end
+        aG[#aG + 1] = ""
+        aG[#aG + 1] = "--- Remotes in ReplicatedStorage (top 40) ---"
+        for aH, aI in ipairs(H.allRemotes(40)) do
+            aG[#aG + 1] = aI
+        end
+        local aH = table.concat(aG, "\n")
+        pcall(setclipboard, aH)
+        F.send(("Diagnostics copied to clipboard (%d lines). Paste in Discord."):format(#aG), 5)
     end)
 end
 
@@ -2748,7 +2887,7 @@ do
             local aE = U.fetchServers()
             w.ServerListCache = aE
             local aF = {}
-            for aG, X in ipairs(aE) do aF[#aF + 1] = ("%s  (%d/%d)"):format(X.id:sub(1, 8), X.playing, X.max) end
+            for aG, aH in ipairs(aE) do aF[#aF + 1] = ("%s  (%d/%d)"):format(aH.id:sub(1, 8), aH.playing, aH.max) end
             if #aF == 0 then aF = { "(no servers)" } end
             ap:setOptions(aF)
             F.send(("Fetched %d servers"):format(#aE))
@@ -2786,32 +2925,32 @@ end
 local aE = C:addPage("Safety")
 local aF = ah.newColumn(aE, 0.5)
 aF.Position = UDim2.fromOffset(8, 8)
-local aG, X = ah.newCard(aF, { title = "Admin Detection", height = 80 })
-ah.toggle(X, "Kick On Detection", "KickOnAdmin")
+local aG, aH = ah.newCard(aF, { title = "Admin Detection", height = 80 })
+ah.toggle(aH, "Kick On Detection", "KickOnAdmin")
 
 
-local Y = C:addPage("Webhook")
-local Z  = ah.newColumn(Y, 0.5)
-Z.Position = UDim2.fromOffset(8, 8)
-local _, aH = ah.newCard(Z, { title = "Webhook", height = 280 })
+local aI = C:addPage("Webhook")
+local aJ  = ah.newColumn(aI, 0.5)
+aJ.Position = UDim2.fromOffset(8, 8)
+local aK, X = ah.newCard(aJ, { title = "Webhook", height = 280 })
 do
-    ah.textInput(aH, "Webhook Link", "WebhookLink", "https://discord.com/api/webhooks/...")
-    ah.slider(aH, "Webhook Interval (minutes)", "WebhookInterval", 1, 60, 1)
-    ah.slider(aH, "Timezone (UTC offset)", "WebhookTimezone", -12, 12, 1)
-    ah.colorPicker(aH, "Embed Color", "WebhookColor")
-    ah.toggle(aH, "Anonymous Mode", "WebhookAnonymous")
-    ah.button(aH, "Force Send Webhook Request", function() V.send(true) end)
+    ah.textInput(X, "Webhook Link", "WebhookLink", "https://discord.com/api/webhooks/...")
+    ah.slider(X, "Webhook Interval (minutes)", "WebhookInterval", 1, 60, 1)
+    ah.slider(X, "Timezone (UTC offset)", "WebhookTimezone", -12, 12, 1)
+    ah.colorPicker(X, "Embed Color", "WebhookColor")
+    ah.toggle(X, "Anonymous Mode", "WebhookAnonymous")
+    ah.button(X, "Force Send Webhook Request", function() V.send(true) end)
 end
 
 
-local aI = C:addPage("Settings")
+local Y = C:addPage("Settings")
 
-local aJ  = ah.newColumn(aI, 0.5)
-aJ.Position = UDim2.fromOffset(8, 8)
-local aK = ah.newColumn(aI, 0.5)
-aK.Position = UDim2.new(0.5, 4, 0, 8)
+local Z  = ah.newColumn(Y, 0.5)
+Z.Position = UDim2.fromOffset(8, 8)
+local _ = ah.newColumn(Y, 0.5)
+_.Position = UDim2.new(0.5, 4, 0, 8)
 
-local aL, aM = ah.newCard(aJ, { title = "Themes", height = 280 })
+local aL, aM = ah.newCard(Z, { title = "Themes", height = 280 })
 do
     ah.colorPicker(aM, "Background color", "BgColor",   function() ac.apply() end)
     ah.colorPicker(aM, "Main color",        "MainColor", function() ac.apply() end)
@@ -2826,7 +2965,7 @@ do
     end)
 end
 
-local aN, aO = ah.newCard(aK, { title = "Configuration", height = 320 })
+local aN, aO = ah.newCard(_, { title = "Configuration", height = 320 })
 do
     ah.textInput(aO, "Config name", "_cfgName", "name")
     ah.button(aO, "Create config", function() ad.save(w._cfgName or "") end)
@@ -2860,7 +2999,7 @@ do
     ah.button(aO, "Import config", function() ad.importString(w._importData or "") end)
 end
 
-local aP, aQ = ah.newCard(aJ, { title = "Menu", height = 160 })
+local aP, aQ = ah.newCard(Z, { title = "Menu", height = 160 })
 do
     ah.keybind(aQ, "Menu bind", "MenuBind")
     ah.toggle(aQ, "Autoexecute", "Autoexecute", function(aR)
@@ -2931,6 +3070,11 @@ D.conn("stats_tick", e.Heartbeat:Connect(function()
         if am  then am:setText("Time Elapsed: N/A") end
         if an then an:setText("Rate: N/A") end
     end
+    
+    if _G._JB_StatusLbl   then _G._JB_StatusLbl  :setText("Status: " .. tostring(w._FarmStatus)) end
+    if _G._JB_FoundLbl    then _G._JB_FoundLbl   :setText(("Targets: %d humanoids / %d by name"):format(w._TargetsFound or 0, w._NamedFound or 0)) end
+    if _G._JB_RemoteLbl   then _G._JB_RemoteLbl  :setText("Attack remote: " .. (w._AttackRemote ~= "" and w._AttackRemote or "(not discovered)")) end
+    if _G._JB_LastFireLbl then _G._JB_LastFireLbl:setText("Last fire: " .. (w._LastFire ~= "" and w._LastFire or "-")) end
 end))
 
 
